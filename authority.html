@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Authority Inbox - CivicTech</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+<div class="max-w-2xl mx-auto p-4">
+  <h1 class="text-2xl font-bold text-gray-800">🏛️ Authority Inbox</h1>
+  <p class="text-xs text-orange-600 mb-4">Demo view. In production this page would sit behind authority login.</p>
+  <div id="list" class="space-y-3 text-sm text-gray-500">Loading…</div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script>
+const C = window.CIVIC_CONFIG || {};
+const list = document.getElementById('list');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+if (!window.supabase || !C.url || C.url.startsWith('PASTE')) {
+  list.textContent = 'Fill in config.js with your Supabase URL and anon key first.';
+} else {
+  const sb = supabase.createClient(C.url, C.key);
+  const hav = (a, b, c, d) => { const R = 6371000, r = x => x * Math.PI / 180;
+    return 2 * R * Math.asin(Math.sqrt(Math.sin(r(c - a) / 2) ** 2 + Math.cos(r(a)) * Math.cos(r(c)) * Math.sin(r(d - b) / 2) ** 2)); };
+  const LABEL = { pothole:'Pothole / damaged road', open_drain:'Open or blocked drain', broken_barricade:'Broken barricade', unsafe_work:'Unsafe work site', other:'Other' };
+  const COLOUR = { sent:'bg-red-100 text-red-700', acknowledged:'bg-yellow-100 text-yellow-800', resolved:'bg-green-100 text-green-700' };
+
+  async function setStatus(id, status) {
+    const { error } = await sb.from('escalations').update({ status }).eq('id', id);
+    if (error) alert('Could not update: ' + error.message);
+    load();
+  }
+  window.setStatus = setStatus;
+
+  async function load() {
+    const [e, r] = await Promise.all([
+      sb.from('escalations').select('*').order('created_at', { ascending: false }).limit(100),
+      sb.from('reports').select('*').order('created_at', { ascending: false }).limit(500)]);
+    if (e.error || r.error) { list.textContent = 'Could not load: ' + (e.error || r.error).message; return; }
+    if (!e.data.length) { list.textContent = 'No escalations yet. They appear when enough residents report the same spot.'; return; }
+    list.innerHTML = e.data.map(x => {
+      const pics = r.data.filter(p => p.category === x.category && hav(p.lat, p.lng, x.lat, x.lng) <= (C.radiusM || 30)).slice(0, 4)
+        .map(p => `<a href="${esc(p.photo_url)}" target="_blank" rel="noopener"><img src="${esc(p.photo_url)}" loading="lazy" class="w-20 h-20 object-cover rounded" alt="Report photo"></a>`).join('');
+      return `<div class="bg-white rounded-lg shadow p-3 border-l-4 ${x.status === 'resolved' ? 'border-green-500' : 'border-red-500'}">
+        <div class="flex justify-between items-start">
+          <div><div class="font-bold text-gray-800">${esc(LABEL[x.category] || x.category)}</div>
+          <div class="text-xs text-gray-500">Routed to <b>${esc(x.dept)}</b> · ${x.report_count} residents · ${new Date(x.created_at).toLocaleString()}</div></div>
+          <span class="text-[11px] font-bold px-2 py-0.5 rounded ${COLOUR[x.status] || ''}">${esc(x.status)}</span></div>
+        <a class="text-xs text-blue-600 underline" target="_blank" rel="noopener" href="https://www.google.com/maps?q=${x.lat},${x.lng}">📍 ${x.lat.toFixed(5)}, ${x.lng.toFixed(5)}</a>
+        <div class="flex gap-2 mt-2">${pics}</div>
+        <div class="flex gap-2 mt-3">
+          <button onclick="setStatus('${esc(x.id)}','acknowledged')" class="flex-1 border border-yellow-500 text-yellow-800 rounded py-2 text-xs font-bold">Acknowledge</button>
+          <button onclick="setStatus('${esc(x.id)}','resolved')" class="flex-1 border border-green-600 text-green-700 rounded py-2 text-xs font-bold">Mark resolved</button></div></div>`;
+    }).join('');
+  }
+  load(); setInterval(load, 15000);
+}
+</script>
+</body>
+</html>

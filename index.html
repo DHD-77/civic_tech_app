@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>CivicTech - Smart Streets</title>
+<!-- Tailwind CSS Play CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+#map{width:100%;height:100%;z-index:1}
+.no-scrollbar::-webkit-scrollbar{display:none}.no-scrollbar{-ms-overflow-style:none;scrollbar-width:none}
+@keyframes slideDown{from{transform:translateY(-100%);opacity:0}to{transform:translateY(0);opacity:1}}
+.toast-animate{animation:slideDown .5s ease-out forwards}
+@keyframes pulse-border{0%{border-color:red;box-shadow:0 0 0 0 rgba(255,0,0,.7)}50%{border-color:orange;box-shadow:0 0 0 10px rgba(255,0,0,0)}100%{border-color:red;box-shadow:0 0 0 0 rgba(255,0,0,0)}}
+.clash-warning{animation:pulse-border 1.5s infinite;cursor:pointer}
+.leaflet-popup-content{min-width:190px!important;margin:10px!important}
+.leaflet-popup-content button{min-height:40px}
+</style>
+</head>
+<body class="bg-gray-200 flex justify-center items-center h-dvh m-0 overflow-hidden">
+<div class="bg-white w-full max-w-md h-full md:h-[90vh] md:rounded-3xl md:shadow-2xl overflow-hidden flex flex-col relative">
+
+  <div id="alertToast" class="hidden absolute top-16 inset-x-4 z-[500] bg-blue-900 text-white p-3 rounded-lg shadow-2xl flex items-start space-x-3 border-l-4 border-blue-400" role="status">
+    <div class="text-2xl">🔔</div>
+    <div class="flex-1"><h4 id="t-alert" class="font-bold text-sm"></h4><p id="t-alert-desc" class="text-xs text-blue-100 mt-0.5"></p></div>
+    <button onclick="closeAlert()" aria-label="Close alert" class="text-blue-300 hover:text-white font-bold text-2xl px-2 leading-none">&times;</button>
+  </div>
+
+  <main class="flex-1 relative overflow-hidden">
+    <div id="topBarFilter" class="absolute top-4 left-4 z-[600]">
+      <button id="menuBtn" aria-label="Timeline filter" class="bg-white p-2.5 rounded-md shadow-lg border border-gray-200 text-gray-700 hover:bg-gray-50 focus:outline-none">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+      </button>
+      <div id="timelineDropdown" class="hidden absolute top-full left-0 mt-2 bg-white rounded-md shadow-xl border border-gray-200 flex flex-col overflow-hidden text-sm font-bold w-36">
+        <button id="btn-past" data-f="past" class="px-4 py-3 text-left"><span class="t-past"></span></button>
+        <button id="btn-present" data-f="present" class="px-4 py-3 text-left"><span class="t-present"></span></button>
+        <button id="btn-future" data-f="future" class="px-4 py-3 text-left"><span class="t-future"></span></button>
+      </div>
+    </div>
+
+    <select id="langSelect" aria-label="Language" class="absolute top-4 right-4 z-[500] bg-white border border-gray-300 text-gray-700 px-2 py-2.5 rounded-md shadow-lg text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
+      <option value="en">English</option><option value="hi">हिंदी (Hindi)</option><option value="ta">தமிழ் (Tamil)</option><option value="te">తెలుగు (Telugu)</option>
+    </select>
+
+    <div id="map"></div>
+
+    <!-- GUARANTEED VISIBLE FLOATING CAMERA BUTTON -->
+    <div class="absolute bottom-6 right-4 z-[9999]">
+      <button id="snapReportBtn" class="bg-blue-600 text-white px-4 py-3 rounded-full shadow-2xl flex items-center space-x-2 hover:bg-blue-700 border-2 border-white cursor-pointer active:scale-95 transition-transform">
+        <span class="text-xl">📷</span>
+        <span class="font-bold text-sm">Snap Issue</span>
+      </button>
+    </div>
+    <input type="file" id="cameraInput" accept="image/*" capture="environment" class="hidden">
+
+    <div id="historyView" class="hidden absolute inset-0 bg-gray-50 z-[50] p-4 overflow-y-auto no-scrollbar">
+      <h2 class="text-xl font-bold text-gray-800 mb-4 t-activity"></h2>
+      <div id="historyList" class="space-y-3"></div>
+    </div>
+
+    <div id="statsView" class="hidden absolute inset-0 bg-gray-50 z-[50] p-4 overflow-y-auto no-scrollbar">
+      <h2 class="text-xl font-bold text-gray-800 mb-2 t-acct"></h2>
+      <p class="text-xs text-gray-500 mb-1">Contractor rankings based on citizen feedback and on-time completion rates.</p>
+      <p class="text-[11px] text-orange-600 font-semibold mb-4 t-sample"></p>
+      <div class="space-y-3">
+        <div class="bg-white p-3 rounded-lg shadow flex items-center justify-between border-l-4 border-green-500"><div><h3 class="font-bold text-sm text-gray-800">Public Works Dept</h3><p class="text-xs text-gray-500">92% On-Time | 14 Projects</p></div><div class="text-right"><div class="text-yellow-400 text-sm">⭐⭐⭐⭐⭐</div><span class="text-xs font-bold text-green-600">Rank #1</span></div></div>
+        <div class="bg-white p-3 rounded-lg shadow flex items-center justify-between border-l-4 border-blue-500"><div><h3 class="font-bold text-sm text-gray-800">Sanitation Board</h3><p class="text-xs text-gray-500">75% On-Time | 8 Projects</p></div><div class="text-right"><div class="text-yellow-400 text-sm">⭐⭐⭐⭐</div><span class="text-xs font-bold text-blue-600">Rank #2</span></div></div>
+        <div class="bg-white p-3 rounded-lg shadow flex items-center justify-between border-l-4 border-red-500"><div><h3 class="font-bold text-sm text-gray-800">Telecom (Sample)</h3><p class="text-xs text-gray-500">30% On-Time | 21 Projects</p></div><div class="text-right"><div class="text-yellow-400 text-sm">⭐⭐</div><span class="text-xs font-bold text-red-600">Needs Improvement</span></div></div>
+      </div>
+    </div>
+
+    <!-- GPS & Camera Report Modal -->
+    <div id="geoReportModal" class="hidden absolute inset-0 bg-black/60 z-[99999] flex justify-center items-center p-4">
+      <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm p-5 max-h-full overflow-y-auto">
+        <h2 class="text-lg font-bold text-gray-800 mb-1">📸 Report Issue with GPS</h2>
+        <p id="geoCoordsDisplay" class="text-xs text-blue-600 font-semibold mb-3 bg-blue-50 p-2 rounded">Detecting location...</p>
+        
+        <div id="imagePreviewContainer" class="mb-3 hidden">
+          <img id="imgPreview" class="w-full h-32 object-cover rounded border" alt="Captured issue">
+        </div>
+
+        <label class="block text-xs font-bold text-gray-700 mb-1">Select Category</label>
+        <select id="geoCategory" class="w-full border border-gray-300 rounded p-2.5 mb-3 text-sm">
+          <option value="pothole">Pothole / Damaged Road</option>
+          <option value="open_drain">Open Drain</option>
+          <option value="broken_barricade">Broken Barricade</option>
+          <option value="unsafe_work">Unsafe Work Site</option>
+          <option value="other">Other Issue</option>
+        </select>
+
+        <label class="block text-xs font-bold text-gray-700 mb-1">Description (Optional)</label>
+        <textarea id="geoNote" rows="2" placeholder="Brief details..." class="w-full border border-gray-300 rounded p-2 mb-3 text-sm resize-none"></textarea>
+        
+        <button id="geoSubmitBtn" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded shadow">Submit to Authorities</button>
+        <button id="geoCancelBtn" class="w-full mt-2 text-gray-500 text-sm font-bold py-3">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Original Project Feedback Modal -->
+    <div id="feedbackModal" class="hidden absolute inset-0 bg-black/60 z-[99999] flex justify-center items-center p-4">
+      <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm p-5 max-h-full overflow-y-auto">
+        <h2 class="text-lg font-bold text-gray-800 mb-1 t-report"></h2>
+        <div class="bg-gray-50 p-2 rounded border border-gray-200 mb-3">
+          <div id="modalProjTitle" class="font-bold text-sm text-blue-700 mb-1"></div>
+          <div id="modalProjLoc" class="text-xs text-gray-600 mb-0.5"></div>
+          <div id="modalProjPhone" class="text-xs text-gray-600"></div>
+        </div>
+        <select id="issueType" aria-label="Issue type" class="w-full border border-gray-300 rounded p-2.5 mb-3 text-sm">
+          <option value="delayed" class="t-delayed"></option><option value="safety" class="t-safety"></option><option value="noworkers" class="t-noworkers"></option><option value="other" class="t-other"></option>
+        </select>
+        <textarea id="issueText" rows="3" class="w-full border border-gray-300 rounded p-2 mb-3 text-sm resize-none"></textarea>
+        <button id="submitBtn" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded t-submit"></button>
+        <button id="cancelBtn" class="w-full mt-2 text-gray-500 text-sm font-bold py-3 t-cancel"></button>
+      </div>
+    </div>
+  </main>
+
+  <footer class="bg-white border-t border-gray-200 z-[60] flex relative" style="padding-bottom:env(safe-area-inset-bottom,0px)">
+    <button data-tab="map" class="flex-1 py-2.5 text-center hover:bg-gray-50 border-r border-gray-100"><div class="text-xl">🗺️</div><div class="text-xs font-bold text-gray-600 mt-1 t-map"></div></button>
+    <button data-tab="history" class="flex-1 py-2.5 text-center hover:bg-gray-50 border-r border-gray-100"><div class="text-xl">📝</div><div class="text-xs font-bold text-gray-600 mt-1 t-activity"></div></button>
+    <button data-tab="stats" class="flex-1 py-2.5 text-center hover:bg-gray-50"><div class="text-xl">📊</div><div class="text-xs font-bold text-gray-600 mt-1 t-stats"></div></button>
+  </footer>
+</div>
+
+<!-- Leaflet and Supabase SDKs -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+};
+
+// --- TRANSLATIONS ---
+const dict = {
+ en:{past:"Past",present:"Present",future:"Future",map:"Map",activity:"Activity",stats:"Rankings",acct:"Accountability",feedback:"Leave Feedback",verify:"Verify Fixed",clash:"⚠️ CLASH DETECTED",impact:"Traffic Impact Zone",submit:"Submit",cancel:"Cancel",report:"Report Issue",delayed:"Work is Delayed",safety:"Safety Hazard",noworkers:"No workers present",other:"Other",timeReq:"Time Required:",dept:"Dept:",contractor:"Contractor:",start:"Start:",location:"Location:",phone:"Phone:",resolved:"Resolved",submitted:"Submitted",submittedOn:"Submitted:",verifiedBy:"Verified by you",clashBody:"are both planning to dig here.",conveyed:"✅ Flagged for both departments",ph:"Provide additional details here...",sample:"Sample data for demonstration.",ok:"Feedback submitted! See it in the Activity tab.",alertT:"Proximity Alert",alertD:n=>`A new future project <b>Smart Streetlights</b> is planned ${n}m from your 🏠 Home.`,storm:"Storm Water Drain Repair",notif:"🔔 You'll get notifications in 15km radius",
+  planned:"Planned end:",expected:"Expected end:",progress:"Progress",onSchedule:"✅ On schedule",delayedBy:d=>`⏱️ Delayed by ${d} day${d>1?'s':''}`,reason:"Reason:",dug:n=>`🔁 Dug ${n}× in 12 months`,wasted:"Est. avoidable restoration cost:",illus:"(illustrative estimate)",end:"End:",overlapWin:"Overlap:",digOnce:"💡 Dig-once suggestion:",digOnceBody:(a,b,s)=>`Schedule ${a} and ${b} as one joint trench starting ${s}: one road closure instead of two.`},
+ hi:{past:"अतीत",present:"वर्तमान",future:"भविष्य",map:"नक्शा",activity:"गतिविधि",stats:"रैंकिंग",acct:"जवाबदेही",feedback:"प्रतिक्रिया दें",verify:"सत्यापित करें",clash:"⚠️ टकराव पाया गया",impact:"ट्रैफिक प्रभाव क्षेत्र",submit:"जमा करें",cancel:"रद्द करें",report:"समस्या दर्ज करें",delayed:"काम में देरी",safety:"सुरक्षा को खतरा",noworkers:"कोई मजदूर नहीं",other:"अन्य",timeReq:"आवश्यक समय:",dept:"विभाग:",contractor:"ठेकेदार:",start:"शुरू:",location:"स्थान:",phone:"फ़ोन:",resolved:"हल हुआ",submitted:"जमा किया",submittedOn:"जमा किया:",verifiedBy:"आपने सत्यापित किया",clashBody:"दोनों यहाँ खुदाई की योजना बना रहे हैं।",conveyed:"✅ दोनों विभागों को चिह्नित किया गया",ph:"अतिरिक्त जानकारी लिखें...",sample:"केवल प्रदर्शन के लिए नमूना डेटा।",ok:"प्रतिक्रिया जमा हुई! गतिविधि टैब में देखें।",alertT:"निकटता चेतावनी",alertD:n=>`आपके घर से ${n} मीटर दूर नया प्रोजेक्ट <b>स्मार्ट स्ट्रीटलाइट्स</b> योजनाबद्ध है।`,storm:"तूफानी जल नाली मरम्मत",notif:"🔔 आपको 15 किमी के दायरे में सूचनाएं मिलेंगी"},
+ tab:{},
+ ta:{past:"கடந்தவை",present:"தற்போது",future:"எதிர்காலம்",map:"வரைபடம்",activity:"செயல்பாடு",stats:"தரவரிசை",acct:"பொறுப்புக்கூறல்",feedback:"புகார் அளி",verify:"சரிபார்",clash:"⚠️ திட்ட முரண்பாடு",impact:"போக்குவரத்து பாதிப்பு",submit:"சமர்ப்பி",cancel:"ரத்து செய்",report:"புகார் செய்",delayed:"பணி தாமதம்",safety:"பாதுகாப்பு அபாயம்",noworkers:"தொழிலாளர்கள் இல்லை",other:"மற்றவை",timeReq:"தேவையான நேரம்:",dept:"துறை:",contractor:"ஒப்பந்ததாரர்:",start:"தொடக்கம்:",location:"இடம்:",phone:"தொலைபேசி:",resolved:"தீர்க்கப்பட்டது",submitted:"சமர்ப்பிக்கப்பட்டது",submittedOn:"சமர்ப்பித்தது:",verifiedBy:"நீங்கள் சரிபார்த்தீர்கள்",clashBody:"இரண்டும் இங்கே தோண்ட திட்டமிட்டுள்ளன.",conveyed:"✅ இரு துறைகளுக்கும் குறிக்கப்பட்டது",ph:"கூடுதல் விவரங்களை எழுதுங்கள்...",sample:"செயல்விளக்கத்திற்கான மாதிரி தரவு.",ok:"புகார் சமர்ப்பிக்கப்பட்டது! செயல்பாடு தத்தலில் பார்க்கவும்.",alertT:"அருகாமை எச்சரிக்கை",alertD:n=>`உங்கள் வீட்டிலிருந்து ${n}மீ தொலைவில் புதிய <b>ஸ்மார்ட் மின்விளக்குகள்</b> திட்டம்.`,storm:"மழைநீர் வடிகால் பழுது",notif:"🔔 15 கிமீ சுற்றளவில் அறிவிப்புகள் கிடைக்கும்"},
+ te:{past:"గతం",present:"ప్రస్తుతం",future:"భవిష్యత్తు",map:"మ్యాప్",activity:"కార్యకలాపాలు",stats:"ర్యాంకింగ్స్",acct:"జవాబుదారీతనం",feedback:"ఫీడ్‌బ్యాక్",verify:"నిర్ధారించు",clash:"⚠️ సంఘర్షణ",impact:"ట్రాఫిక్ ప్రభావం",submit:"సమర్పించండి",cancel:"రద్దు చేయి",report:"సమస్యను నివేదించండి",delayed:"పని ఆలస్యం",safety:"భద్రతా ప్రమాదం",noworkers:"కార్మికులు లేరు",other:"ఇతర",timeReq:"కావాల్సిన సమయం:",dept:"విభాగం:",contractor:"కాంట్రాక్టర్:",start:"ప్రారంభం:",location:"స్థానం:",phone:"ఫోన్:",resolved:"పరిష్కరించబడింది",submitted:"సమర్పించబడింది",submittedOn:"సమర్పించినది:",verifiedBy:"మీరు నిర్ధారించారు",clashBody:"రెండూ ఇక్కడ తవ్వకానికి ప్లాన్ చేస్తున్నాయి.",conveyed:"✅ రెండు విభాగాలకు గుర్తించబడింది",ph:"అదనపు వివరాలు రాయండి...",sample:"ప్రదర్శన కోసం నమూనా డేటా.",ok:"ఫీడ్‌బ్యాక్ సమర్పించబడింది! కార్యకలాపాల ట్యాబ్‌లో చూడండి.",alertT:"సామీప్య హెచ్చరిక",alertD:n=>`మీ ఇంటికి ${n} మీటర్ల దూరంలో కొత్త <b>స్మార్ట్ స్ట్రీట్‌లైట్లు</b> ప్రాజెక్ట్.`,storm:"వర్షపు నీటి కాలువ మరమ్మత్తు",notif:"🔔 15 కి.మీ పరిధిలో నోటిఫికేషన్లు వస్తాయి"}
+};
+let currentLang = store.get('lang', 'en');
+if (!dict[currentLang]) currentLang = 'en';
+const tr = k => dict[currentLang][k] ?? dict.en[k];
+let currentFilter = 'present';
+let streetlightDist = null;
+
+// --- DATE / CLASH HELPERS ---
+const fmt = iso => new Date(iso + 'T00:00:00').toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' });
+const dayDiff = (a, b) => Math.round((new Date(b) - new Date(a)) / 864e5);
+const datesOverlap = (a, b) => a.start <= b.end && b.start <= a.end;
+const RESTORATION_COST = 180000;
+const inr = n => '₹' + n.toLocaleString('en-IN');
+
+const classKeys = ['past','present','future','map','activity','stats','acct','report','submit','cancel','delayed','safety','noworkers','other','sample'];
+function changeLang(code) {
+  currentLang = code; store.set('lang', code);
+  const t = dict[code];
+  $('langSelect').value = code;
+  classKeys.forEach(k => document.querySelectorAll('.t-' + k).forEach(el => el.textContent = t[k]));
+  $('issueText').placeholder = t.ph;
+  $('t-alert').textContent = t.alertT;
+  $('t-alert-desc').innerHTML = t.alertD(streetlightDist ?? '…');
+  renderHistory();
+  setFilter(currentFilter);
+}
+
+// --- NAVIGATION ---
+function switchTab(tab) {
+  $('map').classList.toggle('hidden', tab !== 'map');
+  $('historyView').classList.toggle('hidden', tab !== 'history');$('statsView').classList.toggle('hidden', tab !== 'stats');
+  $('topBarFilter').classList.toggle('hidden', tab !== 'map');$('langSelect').classList.toggle('hidden', tab !== 'map');
+  if (tab === 'map') setTimeout(() => map.invalidateSize(), 0);
+}
+document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+$('menuBtn').addEventListener('click', () =>$('timelineDropdown').classList.toggle('hidden'));
+document.querySelectorAll('[data-f]').forEach(b => b.addEventListener('click', () => { setFilter(b.dataset.f); $('timelineDropdown').classList.add('hidden'); }));$('langSelect').addEventListener('change', e => changeLang(e.target.value));
+function closeAlert() { $('alertToast').classList.add('hidden'); }
+
+// --- MAP ---
+const HOME = [12.8410, 80.1340];
+const map = L.map('map', { zoomControl: false }).setView([12.8377, 80.1372], 16);
+L.tileLayer('https://mt1.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}', { maxZoom: 20, attribution: '&copy; Google' }).addTo(map);
+map.on('click', () => $('timelineDropdown').classList.add('hidden'));
+const projectLayerGroup = L.layerGroup().addTo(map);
+const overlayLayerGroup = L.layerGroup().addTo(map);
+const emojiIcon = (e) => L.divIcon({ className: '', html: `<div class="text-3xl drop-shadow-md">${e}</div>`, iconSize: [40, 40], iconAnchor: [20, 20] });
+const notifBox = () => `<div class="mt-1 text-xs text-blue-700 bg-blue-50 border border-blue-200 p-1.5 rounded font-medium">${dict[currentLang].notif}</div>`;
+L.marker([12.8377, 80.1372]).addTo(map).bindPopup('<b>📍 Current Location</b><br><span class="text-xs text-gray-500">Melakottaiyur, Tamil Nadu</span>');
+L.marker(HOME, { icon: emojiIcon('🏠') }).addTo(map).bindPopup(() => '<b>🏠 Home</b>' + notifBox());
+L.marker([12.8350, 80.1400], { icon: emojiIcon('🏢') }).addTo(map).bindPopup(() => '<b>🏢 Office</b>' + notifBox());
+
+// --- DATA ---
+const emojis = { water: "💧", telecom: "📡", electricity: "⚡", roads: "🚧", gas: "🔥" };
+const projects = [
+ { id:1, status:'present', title:"Road Resurfacing", dept:"Public Works", contractor:"ABC Infra Pvt Ltd", type:"roads", lat:12.8390, lng:80.1380, time:"3 Days", location:"Main Street, Sector 4", phone:"+91 9876543210",
+   plannedEnd:"2026-10-12", expectedEnd:"2026-10-15", progress:60, delayReason:"Rain on Oct 8–9 stalled asphalt laying", digs:3 },
+ { id:2, status:'present', title:"Underground Cabling", dept:"Electricity Board", contractor:"PowerGrid Tech", type:"electricity", lat:12.8365, lng:80.1385, time:"5 Days", location:"Crossroad Ave", phone:"+91 8765432109",
+   plannedEnd:"2026-10-13", expectedEnd:"2026-10-13", progress:40, digs:2 },
+ { id:3, status:'past', title:"Sewer Line Main", dept:"Sanitation", type:"water", lat:12.8385, lng:80.1365, location:"North Block", phone:"+91 7654321098" },
+ { id:4, status:'past', title:"Storm Water Drain", dept:"Sanitation", type:"water", lat:12.8370, lng:80.1360, location:"South Block", phone:"+91 7654321098" },
+ { id:5, status:'future', title:"New Gas Pipeline", dept:"City Gas", type:"gas", lat:12.8355, lng:80.1380, start:"2027-01-10", end:"2027-02-20", location:"Highway Link", phone:"+91 6543210987", digs:2 },
+ { id:6, status:'future', title:"Telecom Fiber Upgrade", dept:"Airtel", type:"telecom", lat:12.8357, lng:80.1382, start:"2027-02-05", end:"2027-03-05", location:"Highway Link", phone:"+91 5432109876", digs:2 }
+];
+const verified = new Set([4]);
+
+// --- GPS & CAMERA REPORTING LOGIC ---
+let activeCoords = { lat: 12.8377, lng: 80.1372 };
+let capturedFile = null;
+
+$('snapReportBtn').addEventListener('click', () => {
+  showToast("📍 Detecting precise GPS location...");
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        activeCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        showToast("GPS locked! Opening camera...");
+        $('cameraInput').click();
+      },
+      (err) => {
+        showToast("GPS unavailable. Using map center.");
+        $('cameraInput').click();
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  } else {
+    $('cameraInput').click();
+  }
+});
+
+$('cameraInput').addEventListener('change', (e) => {
+  if (e.target.files && e.target.files[0]) {
+    capturedFile = e.target.files[0];
+    const reader = new FileReader();
+    reader.onload = (uploadEvent) => {
+      $('imgPreview').src = uploadEvent.target.result;
+      $('imagePreviewContainer').classList.remove('hidden');
+    };
+    reader.readAsDataURL(capturedFile);
+    $('geoCoordsDisplay').textContent = `📍 Lat: ${activeCoords.lat.toFixed(4)}, Lng: ${activeCoords.lng.toFixed(4)}`;
+    $('geoReportModal').classList.remove('hidden');
+  }
+});
+
+$('geoCancelBtn').addEventListener('click', () => {
+  $('geoReportModal').classList.add('hidden');$('cameraInput').value = '';
+});
+
+$('geoSubmitBtn').addEventListener('click', async () => {
+  if (!capturedFile) return alert("Please take a photo first.");
+  const category = $('geoCategory').value;
+  const note = $('geoNote').value.trim();
+  const btn = $('geoSubmitBtn');
+  btn.textContent = "Uploading & Submitting...";
+  btn.disabled = true;
+
+  try {
+    let deviceId = localStorage.getItem('device_id');
+    if (!deviceId) {
+      deviceId = 'dev_' + Math.random().toString(36).substring(2) + Date.now().toString(36);
+      localStorage.setItem('device_id', deviceId);
+    }
+
+    const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.jpg`;
+    const { error: uploadError } = await supabase.storage
+      .from('report-photos')
+      .upload(fileName, capturedFile);
+
+    if (uploadError) throw uploadError;
+
+    const { data: publicUrlData } = supabase.storage
+      .from('report-photos')
+      .getPublicUrl(fileName);
+    const photoUrl = publicUrlData.publicUrl;
+
+    const { error: dbError } = await supabase.from('reports').insert([{
+      lat: activeCoords.lat,
+      lng: activeCoords.lng,
+      category: category,
+      note: note,
+      photo_url: photoUrl,
+      device_id: deviceId
+    }]);
+
+    if (dbError) throw dbError;
+
+    showToast("✅ Report sent to authorities!");
+    $('geoReportModal').classList.add('hidden');
+    $('cameraInput').value = '';$('geoNote').value = '';
+    setFilter(currentFilter);
+  } catch (err) {
+    console.error(err);
+    alert("Error submitting report: " + err.message);
+  } finally {
+    btn.textContent = "Submit to Authorities";
+    btn.disabled = false;
+  }
+});
+
+// --- FEEDBACK / HISTORY ---
+let feedbackHistory = [];
+let currentProject = null;
+function openFeedbackModal(id) {
+  const p = projects.find(x => x.id === id); if (!p) return;
+  const t = dict[currentLang]; currentProject = p;
+  $('modalProjTitle').textContent = `🚧 ${p.title}`;
+  $('modalProjLoc').innerHTML = `<b>${t.location}</b> ${esc(p.location)}`;
+  $('modalProjPhone').innerHTML = `<b>${t.phone}</b> ${esc(p.phone)}`;
+  $('feedbackModal').classList.remove('hidden');
+}
+$('cancelBtn').addEventListener('click', () => $('feedbackModal').classList.add('hidden'));$('submitBtn').addEventListener('click', () => {
+  if (!currentProject) return;
+  feedbackHistory.unshift({ title: currentProject.title, loc: currentProject.location, phone: currentProject.phone, issue: $('issueType').value, text:$('issueText').value.trim(), date: new Date().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) });
+  $('issueText').value = '';$('feedbackModal').classList.add('hidden');
+  renderHistory(); showToast(dict[currentLang].ok);
+});
+function renderHistory() {
+  const t = dict[currentLang];
+  const items = feedbackHistory.map(f => `
+    <div class="bg-white p-3 rounded-lg shadow border-l-4 border-blue-500">
+      <div class="flex justify-between items-start"><h3 class="font-bold text-sm text-gray-800">${esc(f.title)}</h3><span class="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-bold">${t.submitted}</span></div>
+      <div class="text-xs text-gray-500 mt-1.5 mb-1.5 bg-gray-50 p-1.5 rounded"><div>📍 ${esc(f.loc)}</div><div>📞 ${esc(f.phone)}</div></div>
+      <p class="text-xs text-gray-700 font-semibold">${t[f.issue] || ''}</p>
+      ${f.text ? `<p class="text-xs text-gray-500 mt-1 italic">"${esc(f.text)}"</p>` : ''}
+      <p class="text-[10px] text-gray-400 mt-2">${t.submittedOn} ${esc(f.date)}</p>
+    </div>`).join('');
+  $('historyList').innerHTML = items + `
+    <div class="bg-white p-3 rounded-lg shadow border-l-4 border-green-500"><div class="flex justify-between items-start"><h3 class="font-bold text-sm text-gray-800">${t.storm}</h3><span class="text-[10px] bg-green-100 text-green-800 px-2 py-0.5 rounded font-bold">${t.resolved}</span></div><p class="text-[10px] text-gray-400 mt-2">${t.submittedOn} Oct 1, 2026</p></div>`;
+}
+function showToast(msg) {
+  let el = $('msgToast');
+  if (!el) { el = document.createElement('div'); el.id = 'msgToast'; el.className = 'absolute bottom-4 inset-x-4 z-[9999] bg-gray-900 text-white text-sm p-3 rounded-lg shadow-xl text-center'; document.querySelector('main').appendChild(el); }
+  el.textContent = msg; el.classList.remove('hidden');
+  clearTimeout(el._t); el._t = setTimeout(() => el.classList.add('hidden'), 2800);
+}
+
+// --- POPUP ACTIONS ---
+map.on('popupopen', e => {
+  const root = e.popup.getElement(); if (!root) return;
+  root.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => {
+    const id = Number(b.dataset.id);
+    if (b.dataset.act === 'feedback') openFeedbackModal(id);
+    if (b.dataset.act === 'verify') { verified.add(id); map.closePopup(); setFilter(currentFilter); }
+  }));
+});
+
+function digBadge(p) {
+  if (!p.digs || p.digs < 2) return '';
+  const avoidable = (p.digs - 1) * RESTORATION_COST;
+  return `<div class="mt-1 mb-1 bg-orange-50 border border-orange-200 rounded p-1.5 text-xs">
+    <b class="text-orange-700">${tr('dug')(p.digs)}</b><br>
+    <span class="text-gray-600">${tr('wasted')} <b>${inr(avoidable)}</b> <i>${tr('illus')}</i></span></div>`;
+}
+function scheduleBlock(p) {
+  if (!p.plannedEnd) return '';
+  const late = dayDiff(p.plannedEnd, p.expectedEnd);
+  const status = late > 0
+    ? `<span class="inline-block bg-red-100 text-red-700 font-bold px-1.5 py-0.5 rounded text-[11px]">${tr('delayedBy')(late)}</span>`
+    : `<span class="inline-block bg-green-100 text-green-700 font-bold px-1.5 py-0.5 rounded text-[11px]">${tr('onSchedule')}</span>`;
+  return `<div class="text-xs mb-1"><b>${tr('planned')}</b> ${fmt(p.plannedEnd)}</div>
+    <div class="text-xs mb-1"><b>${tr('expected')}</b> ${fmt(p.expectedEnd)}</div>
+    <div class="text-xs mb-1 flex items-center justify-between"><b>${tr('progress')}</b><span>${p.progress}%</span></div>
+    <div class="w-full bg-gray-200 rounded h-2 mb-1.5"><div class="bg-blue-600 h-2 rounded" style="width:${Number(p.progress) || 0}%"></div></div>
+    <div class="mb-1">${status}</div>
+    ${late > 0 && p.delayReason ? `<div class="text-xs mb-1 text-gray-600"><b>${tr('reason')}</b>${esc(p.delayReason)}</div>` : ''}`;
+}
+
+// --- RENDERER ---
+function setFilter(status) {
+  ['past','present','future'].forEach(f => {
+    $(`btn-${f}`).className = "px-4 py-3 text-left transition-colors " + (f === status ? "bg-blue-600 text-white" : "text-gray-500 bg-white hover:bg-gray-100");
+  });
+  currentFilter = status;
+  projectLayerGroup.clearLayers(); overlayLayerGroup.clearLayers();
+  const t = dict[currentLang];
+
+  projects.filter(p => p.status === status).forEach(p => {
+    let cardStyle = "", popup = "", badge = "";
+    const loc = `<div class="text-xs mb-1"><b>${t.location}</b> ${esc(p.location)}</div>`;
+    const tel = `<div class="text-xs mb-1"><b>${t.phone}</b> <a href="tel:${esc(p.phone)}" class="text-blue-600 underline">${esc(p.phone)}</a></div>`;
+    if (status === 'present') {
+      L.circle([p.lat, p.lng], { color:'red', fillColor:'#f03', fillOpacity:.15, radius:80, weight:1, interactive:false }).addTo(overlayLayerGroup);
+      cardStyle = "bg-slate-800 text-white border-slate-400";
+      badge = `<div class="absolute top-full left-1/2 -translate-x-1/2 mt-1 text-[10px] font-bold text-gray-700 bg-white/95 border border-gray-300 px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap">${esc(p.time)}</div>`;
+      popup = `<div class="mb-1"><strong class="text-blue-700">🚧 ${esc(p.title)}</strong></div>${loc}${tel}
+        <div class="text-xs mb-1"><b>${t.dept}</b> ${esc(p.dept)}</div><div class="text-xs mb-1"><b>${t.contractor}</b> ${esc(p.contractor)}</div>
+        <div class="text-xs mb-1.5"><b>${t.timeReq}</b> ${esc(p.time)}</div>
+        ${scheduleBlock(p)}${digBadge(p)}
+        <button data-act="feedback" data-id="${p.id}" class="mt-1 bg-blue-600 text-white font-bold px-2 py-1.5 rounded text-xs w-full shadow">${t.feedback}</button>`;
+    } else if (status === 'past') {
+      cardStyle = "bg-green-100 text-green-800 border-green-500 opacity-90";
+      popup = verified.has(p.id)
+        ? `<div class="flex items-center space-x-2 mb-1"><span class="text-green-600 text-xl">✅</span><strong class="text-green-700">${esc(p.title)}</strong></div>${loc}<div class="text-[11px] text-gray-500 mt-1">${t.verifiedBy}</div>`
+        : `<div class="mb-1"><strong class="text-orange-600">⏳ ${esc(p.title)}</strong></div>${loc}<button data-act="verify" data-id="${p.id}" class="mt-1 border border-green-500 bg-green-100 text-green-700 px-2 py-1.5 rounded text-xs w-full font-bold">${t.verify}</button>`;
+    } else {
+      cardStyle = "bg-blue-50 text-blue-800 border-blue-400 border-dashed";
+      popup = `<strong class="text-blue-800">📅 ${esc(p.title)}</strong>${loc}${tel}
+        <div class="text-xs mb-1"><b>${t.start}</b> ${fmt(p.start)}</div><div class="text-xs mb-1"><b>${tr('end')}</b> ${fmt(p.end)}</div>${digBadge(p)}`;
+    }
+    const icon = L.divIcon({ className: '', iconSize: [40, 40], iconAnchor: [20, 20],
+      html: `<div class="relative w-10 h-10"><div class="${cardStyle} rounded-full shadow-md flex items-center justify-center border-2 w-10 h-10"><span class="text-xl leading-none">${emojis[p.type]}</span></div>${badge}</div>` });
+    L.marker([p.lat, p.lng], { icon }).bindPopup(`<div>${popup}</div>`).addTo(projectLayerGroup);
+  });
+}
+
+// --- INIT ---
+const streetlight = { id: 7, status:'future', title:"Smart Streetlights", dept:"Public Works", type:"electricity", lat:12.8400, lng:80.1345, start:"2026-12-15", end:"2026-12-30", location:"Ozone Street", phone:"+91 9988776655" };
+streetlightDist = Math.round(map.distance(HOME, [streetlight.lat, streetlight.lng]));
+setTimeout(() => {
+  projects.push(streetlight);
+  $('t-alert-desc').innerHTML = dict[currentLang].alertD(streetlightDist);
+  $('alertToast').classList.remove('hidden');$('alertToast').classList.add('toast-animate');
+  if (currentFilter === 'future') setFilter('future');
+}, 3000);
+switchTab('map');
+changeLang(currentLang);
+</script>
+</main>
+
+  <footer class="bg-white border-t border-gray-200 z-[60] flex relative" style="padding-bottom:env(safe-area-inset-bottom,0px)">
+    <button data-tab="map" class="flex-1 py-2.5 text-center hover:bg-gray-50 border-r border-gray-100"><div class="text-xl">🗺️</div><div class="text-xs font-bold text-gray-600 mt-1 t-map"></div></button>
+    <button data-tab="history" class="flex-1 py-2.5 text-center hover:bg-gray-50 border-r border-gray-100"><div class="text-xl">📝</div><div class="text-xs font-bold text-gray-600 mt-1 t-activity"></div></button>
+    <button data-tab="stats" class="flex-1 py-2.5 text-center hover:bg-gray-50"><div class="text-xl">📊</div><div class="text-xs font-bold text-gray-600 mt-1 t-stats"></div></button>
+  </footer>
+</div>
+
+<!-- STEP 1: LOAD EXTERNAL LIBRARIES & CONFIG FIRST -->
+<!-- 1. External Libraries -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+
+<!-- 2. Main Script Helpers -->
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+</script>
+</body>
+</html>
