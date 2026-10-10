@@ -1,3 +1,4 @@
+
 # 🏙️ CivicTech - Smart Streets & Infrastructure Map
 
 A web-based CivicTech platform designed for real-time infrastructure tracking, citizen reporting, and proactive urban management. Built for hackathons to solve urban coordination challenges like repeated road excavation ("dig-once" concept).
@@ -17,3 +18,6 @@ A web-based CivicTech platform designed for real-time infrastructure tracking, c
 * **Frontend**: HTML5, Tailwind CSS (via Play CDN), Vanilla JavaScript, Leaflet.js
 * **Backend & Database**: Supabase (PostgreSQL, Row Level Security, Storage Buckets)
 * **Hosting**: Netlify / GitHub Pages
+
+# DEMO VIDEO LINK
+https://github.com/user-attachments/assets/9426411b-db72-43e8-88b1-254adf388b7d
